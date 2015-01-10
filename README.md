@@ -1,1 +1,1 @@
-# maonitor
+# Meownitor: an AWS CloudWatch client
