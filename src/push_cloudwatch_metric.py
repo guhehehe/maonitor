@@ -2,8 +2,6 @@
 # encoding: utf-8
 
 import argparse
-from datetime import datetime, timedelta
-import logging
 import re
 import sys
 import time
@@ -12,6 +10,14 @@ from boto.ec2 import cloudwatch
 from boto.utils import get_instance_metadata
 
 
+UNIT_CHOICES = ('Seconds', 'Microseconds', 'Milliseconds', 'Bytes',
+                'Kilobytes', 'Megabytes', 'Gigabytes', 'Terabytes', 'Bits',
+                'Kilobits', 'Megabits', 'Gigabits', 'Terabits', 'Percent',
+                'Count', 'Bytes/Second', 'Kilobytes/Second', 'Megabytes/Second',
+                'Gigabytes/Second', 'Terabytes/Second', 'Bits/Second',
+                'Kilobits/Second', 'Megabits/Second', 'Gigabits/Second',
+                'Terabits/Second', 'Count/Second')
+
 def parser():
     arg_parser = argparse.ArgumentParser(
         description='Post the given metric to CloudWatch',
@@ -19,50 +25,64 @@ def parser():
     )
     arg_parser.add_argument(
         'namespace',
-        help='the namespace the metric will be posted to'
+        help='the namespace of the metric'
     )
     arg_parser.add_argument(
         'name',
+        metavar='name[,name1,name2...]',
         help='the name of the metric'
     )
     arg_parser.add_argument(
         'value',
-        type=float,
+        metavar='value[,value1,value2...]',
         help='the value of the metric'
     )
     arg_parser.add_argument(
         '-u', '--unit',
-        help='the unit for metric'
+        metavar='unit[,unit1,unit2...]',
+        help=('the unit for the metric, a unit must be one of the following\n'
+              '    Seconds, Microseconds, Milliseconds, Bytes,\n'
+              '    Kilobytes, Megabytes, Gigabytes, Terabytes, Bits,\n'
+              '    Kilobits, Megabits, Gigabits, Terabits, Percent,\n'
+              '    Count, Bytes/Second, Kilobytes/Second, Megabytes/Second,\n'
+              '    Gigabytes/Second, Terabytes/Second, Bits/Second,\n'
+              '    Kilobits/Second, Megabits/Second, Gigabits/Second,\n'
+              '    Terabits/Second, Count/Second')
     )
     arg_parser.add_argument(
         '-d', '--dimensions',
-        help=('extra name value pairs to associate with the metric\n'
-              'i.e.: name1=value1,name2=value2&value3')
+        metavar='name=value[,name1=value1...]',
+        help=('extra name value pairs to associate with the metric, multiple\n'
+              'values could be associated with the same name')
+    )
+    arg_parser.add_argument(
+        '-c', '--credential',
+        metavar='credential_file_path',
+        type=file,
+        default='/opt/aws/cloudwatch-creds',
+        help=('default: /opt/aws/cloudwatch-creds\n'
+              'CloudWatch credential file path, this file should have the\n'
+              'following format:\n'
+              '    AWSAccessKeyId=\n'
+              '    AWSSecretKey=')
     )
     arg_parser.add_argument(
         '-i', '--instance_specific',
         action='store_true',
-        help=('if specified, instance id will be attached to dimensions to\n'
-              'make instance specific metric')
-    )
-    arg_parser.add_argument(
-        '-c', '--credential',
-        type=file,
-        default='/opt/aws-scripts-mon/linqia-cloudwatch-creds',
-        help='the aws credential file path'
+        help=('if specified, instance id will be attached to dimensions to '
+              'make\ninstance specific metric')
     )
     arg_parser.add_argument(
         '-v', '--verify',
         action='store_true',
-        help='list metric info to be posted but will not actually push to CloudWatch'
+        help='list the metric to be posted instead of pushing it to CloudWatch'
     )
 
-    return arg_parser.parse_args()
+    return arg_parser
 
 
 class CloudWatch(object):
 
-    logger = logging.getLogger(__name__)
     AWSAccessKeyId = None
     AWSSecretKey = None
     metadata = {}
@@ -117,39 +137,44 @@ class CloudWatch(object):
         )
 
 
-def main():
-    unit_choices = ('Seconds', 'Microseconds', 'Milliseconds', 'Bytes',
-                    'Kilobytes', 'Megabytes', 'Gigabytes', 'Terabytes', 'Bits',
-                    'Kilobits', 'Megabits', 'Gigabits', 'Terabits', 'Percent',
-                    'Count', 'Bytes/Second', 'Kilobytes/Second', 'Megabytes/Second',
-                    'Gigabytes/Second', 'Terabytes/Second', 'Bits/Second',
-                    'Kilobits/Second', 'Megabits/Second', 'Gigabits/Second',
-                    'Terabits/Second', 'Count/Second')
-
-    try:
-        args = parser()
-    except IOError, e:
-        print ('Credential file not found at {}, try -c to use'
-               ' another path').format(e.filename)
+def _parse_dimension(dimensions):
+    if not dimensions:
         return
+    dimensions = {}
+    key_val = args.dimensions.split(',')
+    for kv in key_val:
+        kv = key_val.split('=')
+        k = kv[0]
+        v = '='.join(kv[1:])
+        if '&' in v:
+            v = tuple(v.split('&'))
+        dimensions[k] = v
+
+
+def _check_arguments(args):
+    # args.name, args.value, args.unit
+    names = args.name.split(',')
+    values = args.value.split(',')
+    if args.unit and args.unit not in UNIT_CHOICES:
+        print 'unit must be one of these:'
+        print ', '.join(unit_choices)
+        return
+
+
+def main():
+    try:
+        arg_parser = parser()
+        args = arg_parser.parse_args()
+    except IOError, e:
+        arg_parser.error( 'Credential file not found at {},'
+            'try -c to use another path'.format(e.filename))
 
     if args.unit and args.unit not in unit_choices:
         print 'unit must be one of these:'
         print ', '.join(unit_choices)
         return
 
-    if args.dimensions:
-        dimensions = {}
-        key_val = args.dimensions.split(',')
-        for kv in key_val:
-            kv = key_val.split('=')
-            k = kv[0]
-            v = '='.join(kv[1:])
-            if '&' in v:
-                v = tuple(v.split('&'))
-            dimensions[k] = v
-    else:
-        dimensions = None
+    dimensions = _parse_dimension(args.dimensions)
 
     if args.verify:
         print 'namespace: {}'.format(args.namespace)
