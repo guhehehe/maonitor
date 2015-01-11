@@ -208,6 +208,7 @@ def main():
         if dimensions:
             for d, v in dimensions.iteritems():
                 print 'dimension: {}={}'.format(d, v)
+        print 'instance specific: {}'.format(args.instance_specific)
         return
 
     watch = CloudWatch(args.credential)
