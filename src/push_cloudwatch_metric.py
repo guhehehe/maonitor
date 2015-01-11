@@ -22,6 +22,10 @@ UNIT_CHOICES = ('Seconds', 'Microseconds', 'Milliseconds', 'Bytes',
                 'Kilobits/Second', 'Megabits/Second', 'Gigabits/Second',
                 'Terabits/Second', 'Count/Second')
 
+AWSAccessKeyId = None
+AWSSecretKey = None
+METADATA = {}
+
 def parser():
     arg_parser = argparse.ArgumentParser(
         description='Post the given metric to CloudWatch',
@@ -85,60 +89,55 @@ def parser():
     return arg_parser
 
 
-class CloudWatch(object):
+def __init__(credential_path):
+    self._populate_metadata()
+    self._populate_credential(credential_path)
 
-    AWSAccessKeyId = None
-    AWSSecretKey = None
-    metadata = {}
+def _populate_credential(credential):
+    for line in credential:
+        if '=' in line:
+            parts = line.split('=')
+            if parts[0] == 'AWSAccessKeyId':
+                AWSAccessKeyId = parts[1].strip("\n")
+            if parts[0] == 'AWSSecretKey':
+                AWSSecretKey = parts[1].strip("\n")
+    if not (AWSAccessKeyId and AWSSecretKey):
+        raise ValueError("AWSAccessKeyId or AWSSecretKey is empty")
 
-    def __init__(self, credential_path):
-        self._populate_metadata()
-        self._populate_credential(credential_path)
+def _populate_metadata():
+    metadata = get_instance_metadata(timeout=5)
+    if metadata:
+        METADATA['instance_id'] = metadata['instance-id']
+        region_name = metadata['placement']['availability-zone'][0:-1]
+        for curr_region in cloudwatch.regions():
+            if curr_region.name == region_name:
+                METADATA['region'] = curr_region
 
-    def _populate_credential(self, credential):
-        for line in credential:
-            if '=' in line:
-                parts = line.split('=')
-                if parts[0] in ('AWSAccessKeyId', 'AWSSecretKey'):
-                    setattr(self, parts[0].strip("\n"), parts[1].strip("\n"))
-        if not (self.AWSAccessKeyId and self.AWSSecretKey):
-            raise ValueError("AWSAccessKeyId or AWSSecretKey is empty")
-
-    def _populate_metadata(self):
-        metadata = get_instance_metadata(timeout=5)
-        if metadata:
-            self.metadata['instance_id'] = metadata['instance-id']
-            region_name = metadata['placement']['availability-zone'][0:-1]
-            for curr_region in cloudwatch.regions():
-                if curr_region.name == region_name:
-                    self.metadata['region'] = curr_region
-
-    def put_cloudwatch_metric(self,
-                              namespace,
-                              name,
-                              value,
-                              dimensions=None,
-                              unit=None,
-                              instance_specific=False):
-        cw = cloudwatch.CloudWatchConnection(
-            region=self.metadata.get('region'),
-            aws_access_key_id=self.AWSAccessKeyId,
-            aws_secret_access_key=self.AWSSecretKey
-        )
-        if instance_specific:
-            instance_id = self.metadata.get('instance_id')
-            if not instance_id:
-                raise ValueError('Instance id is empty')
-            if not dimensions:
-                dimensions = {}
-            dimensions.update(dict(InstanceId=instance_id))
-        cw.put_metric_data(
-            namespace,
-            name,
-            value,
-            unit=unit,
-            dimensions=dimensions
-        )
+def put_cloudwatch_metric(namespace,
+                          name,
+                          value,
+                          dimensions=None,
+                          unit=None,
+                          instance_specific=False):
+    cw = cloudwatch.CloudWatchConnection(
+        region=METADATA.get('region'),
+        aws_access_key_id=AWSAccessKeyId,
+        aws_secret_access_key=AWSSecretKey
+    )
+    if instance_specific:
+        instance_id = METADATA.get('instance_id')
+        if not instance_id:
+            raise ValueError('Instance id is empty')
+        if not dimensions:
+            dimensions = {}
+        dimensions.update(dict(InstanceId=instance_id))
+    cw.put_metric_data(
+        namespace,
+        name,
+        value,
+        unit=unit,
+        dimensions=dimensions
+    )
 
 
 def _parse_dimension(dimensions):
