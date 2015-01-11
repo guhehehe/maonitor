@@ -8,6 +8,10 @@ import time
 
 from boto.ec2 import cloudwatch
 from boto.utils import get_instance_metadata
+from collections import defaultdict
+
+
+# TODO: Break down CloudWatch class to individual functions
 
 
 UNIT_CHOICES = ('Seconds', 'Microseconds', 'Milliseconds', 'Bytes',
@@ -40,7 +44,7 @@ def parser():
     arg_parser.add_argument(
         '-u', '--unit',
         metavar='unit[,unit1,unit2...]',
-        help=('the unit for the metric, a unit must be one of the following\n'
+        help=('the unit for the metric, units must be one of the following\n'
               '    Seconds, Microseconds, Milliseconds, Bytes,\n'
               '    Kilobytes, Megabytes, Gigabytes, Terabytes, Bits,\n'
               '    Kilobits, Megabits, Gigabits, Terabits, Percent,\n'
@@ -140,63 +144,79 @@ class CloudWatch(object):
 def _parse_dimension(dimensions):
     if not dimensions:
         return
-    dimensions = {}
-    key_val = args.dimensions.split(',')
+    dimension_dict = defaultdict(list)
+    key_val = dimensions.split(',')
     for kv in key_val:
-        kv = key_val.split('=')
+        kv = kv.split('=')
         k = kv[0]
         v = '='.join(kv[1:])
-        if '&' in v:
-            v = tuple(v.split('&'))
-        dimensions[k] = v
+        dimension_dict[k].extend([v])
+    for k, v in dimension_dict.iteritems():
+        if len(v) == 1:
+            dimension_dict[k] = v.pop()
+        else:
+            dimension_dict[k] = tuple(v)
+    return dimension_dict
 
 
-def _check_arguments(args):
-    # args.name, args.value, args.unit
-    names = args.name.split(',')
-    values = args.value.split(',')
-    if args.unit and args.unit not in UNIT_CHOICES:
-        print 'unit must be one of these:'
-        print ', '.join(unit_choices)
-        return
+def _parse_name(name):
+    return name.split(',')
+
+
+def _parse_value(value):
+    values = value.split(',')
+    try:
+        values = map(float, values)
+    except:
+        raise ValueError('metric value should be float.')
+    return values
+
+
+def _parse_unit(unit):
+    units = unit.split(',') if unit else None
+    if not units:
+        return []
+    for u in units:
+        if u not in UNIT_CHOICES:
+            raise ValueError('unit must be one of the following:\n'
+                             '{}'.format(', '.join(UNIT_CHOICES)))
+    return units
 
 
 def main():
     try:
         arg_parser = parser()
         args = arg_parser.parse_args()
+        names = _parse_name(args.name)
+        values = _parse_value(args.value)
+        units = _parse_unit(args.unit)
+        dimensions = _parse_dimension(args.dimensions)
+        if len(names) != len(values):
+            raise ValueError('names should be as many as values.')
+        if len(names) != len(units):
+            units = units + ['None'] * (len(names) - len(units))
     except IOError, e:
-        arg_parser.error( 'Credential file not found at {},'
+        arg_parser.error('credential file not found at {},'
             'try -c to use another path'.format(e.filename))
-
-    if args.unit and args.unit not in unit_choices:
-        print 'unit must be one of these:'
-        print ', '.join(unit_choices)
-        return
-
-    dimensions = _parse_dimension(args.dimensions)
+    except Exception, e:
+        arg_parser.error(e.message)
 
     if args.verify:
         print 'namespace: {}'.format(args.namespace)
-        print 'name: {}'.format(args.name)
-        print 'value: {}'.format(args.value)
-        print 'unit: {}'.format(args.unit)
-        print 'instance specific: {}'.format(args.instance_specific)
+        for n, v, u in zip(names, values, units):
+            print 'metric: {}={} {}'.format(n, v, '' if u == 'None' else u)
         if dimensions:
-            print 'dimensions:'
-            for k, v in dimensions.iteritems():
-                print '    {}: {}'.format(k, v)
-        else:
-            print 'dimensions: {}'.format(dimensions)
+            for d, v in dimensions.iteritems():
+                print 'dimension: {}={}'.format(d, v)
         return
 
     watch = CloudWatch(args.credential)
     watch.put_cloudwatch_metric(
         args.namespace,
-        args.name,
-        args.value,
+        names,
+        values,
         dimensions,
-        args.unit,
+        units,
         args.instance_specific
     )
 
