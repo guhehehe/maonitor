@@ -10,9 +10,9 @@ from boto.ec2 import cloudwatch
 from boto.utils import get_instance_metadata
 from collections import defaultdict
 
-
-# TODO: Break down CloudWatch class to individual functions
-
+AWSAccessKeyId = None
+AWSSecretKey = None
+METADATA = {}
 
 UNIT_CHOICES = ('Seconds', 'Microseconds', 'Milliseconds', 'Bytes',
                 'Kilobytes', 'Megabytes', 'Gigabytes', 'Terabytes', 'Bits',
@@ -22,9 +22,6 @@ UNIT_CHOICES = ('Seconds', 'Microseconds', 'Milliseconds', 'Bytes',
                 'Kilobits/Second', 'Megabits/Second', 'Gigabits/Second',
                 'Terabits/Second', 'Count/Second')
 
-AWSAccessKeyId = None
-AWSSecretKey = None
-METADATA = {}
 
 def parser():
     arg_parser = argparse.ArgumentParser(
@@ -69,7 +66,7 @@ def parser():
         type=file,
         default='/opt/aws/cloudwatch-creds',
         help=('default: /opt/aws/cloudwatch-creds\n'
-              'CloudWatch credential file path, this file should have the\n'
+              'cloudWatch credential file path, this file should have the\n'
               'following format:\n'
               '    AWSAccessKeyId=\n'
               '    AWSSecretKey=')
@@ -89,10 +86,6 @@ def parser():
     return arg_parser
 
 
-def __init__(credential_path):
-    self._populate_metadata()
-    self._populate_credential(credential_path)
-
 def _populate_credential(credential):
     for line in credential:
         if '=' in line:
@@ -104,6 +97,7 @@ def _populate_credential(credential):
     if not (AWSAccessKeyId and AWSSecretKey):
         raise ValueError("AWSAccessKeyId or AWSSecretKey is empty")
 
+
 def _populate_metadata():
     metadata = get_instance_metadata(timeout=5)
     if metadata:
@@ -112,6 +106,7 @@ def _populate_metadata():
         for curr_region in cloudwatch.regions():
             if curr_region.name == region_name:
                 METADATA['region'] = curr_region
+
 
 def put_cloudwatch_metric(namespace,
                           name,
@@ -196,7 +191,7 @@ def main():
             units = units + ['None'] * (len(names) - len(units))
     except IOError, e:
         arg_parser.error('credential file not found at {},'
-            'try -c to use another path'.format(e.filename))
+                         'try -c to use another path'.format(e.filename))
     except Exception, e:
         arg_parser.error(e.message)
 
@@ -210,8 +205,10 @@ def main():
         print 'instance specific: {}'.format(args.instance_specific)
         return
 
-    watch = CloudWatch(args.credential)
-    watch.put_cloudwatch_metric(
+    _populate_metadata()
+    _populate_credential(args.credential_path)
+
+    put_cloudwatch_metric(
         args.namespace,
         names,
         values,
