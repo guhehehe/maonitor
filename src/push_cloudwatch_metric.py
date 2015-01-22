@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # encoding: utf-8
 
+#TODO: Email notification
+
 import argparse
 import re
 import sys
@@ -16,8 +18,8 @@ METADATA = {}
 
 UNIT_CHOICES = ('Seconds', 'Microseconds', 'Milliseconds', 'Bytes',
                 'Kilobytes', 'Megabytes', 'Gigabytes', 'Terabytes', 'Bits',
-                'Kilobits', 'Megabits', 'Gigabits', 'Terabits', 'Percent',
-                'Count', 'Bytes/Second', 'Kilobytes/Second', 'Megabytes/Second',
+                'Kilobits', 'Megabits', 'Gigabits', 'Terabits', 'Bytes/Second',
+                'Count', 'Percent', 'Kilobytes/Second', 'Megabytes/Second',
                 'Gigabytes/Second', 'Terabytes/Second', 'Bits/Second',
                 'Kilobits/Second', 'Megabits/Second', 'Gigabits/Second',
                 'Terabits/Second', 'Count/Second')
