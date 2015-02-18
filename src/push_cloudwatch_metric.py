@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 # encoding: utf-8
 
-#TODO: Email notification
-
 import argparse
 import re
 import sys
@@ -173,6 +171,8 @@ def _parse_unit(unit):
     if not units:
         return []
     for u in units:
+        if not u:
+            continue
         if u not in UNIT_CHOICES:
             raise ValueError('unit must be one of the following:\n'
                              '{}'.format(', '.join(UNIT_CHOICES)))
